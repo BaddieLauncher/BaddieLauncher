@@ -56,7 +56,6 @@
 <div id="loginPage" class="overlay">
     <div class="title-text" style="font-size:40px; font-weight:900; color:var(--primary); margin-bottom:20px;">POOKIE</div>
     <input id="username" type="text" placeholder="Nickname">
-    <input id="password" type="password" placeholder="Password">
     <button class="btn" onclick="login()">LOGIN</button>
 </div>
 
@@ -69,14 +68,13 @@
     </div>
 
     <div style="font-size: 11px; font-weight: 800; color: var(--primary);">SELECT CHARACTER</div>
-    <div class="char-container" id="charList">
-        </div>
+    <div class="char-container" id="charList"></div>
     
     <button class="btn" onclick="startGame()">PLAY GAME</button>
     
     <div id="scoreboard">
-        <div style="text-align:center; font-weight:bold; margin-bottom:5px;">TOP 5 PLAYERS</div>
-        <div id="leaderboardList"></div>
+        <div style="text-align:center; font-weight:bold; margin-bottom:5px;">GLOBAL TOP 5</div>
+        <div id="leaderboardList">Loading scores...</div>
     </div>
 
     <div onclick="logout()" style="color:#aaa; font-size:11px; cursor:pointer; margin-top:10px; text-decoration: underline;">Logout</div>
@@ -89,7 +87,24 @@
 <audio id="audHit" src="https://files.catbox.moe/tc5gl1.mp3" preload="auto"></audio>
 <audio id="audScream" src="https://files.catbox.moe/tkzhsm.wav" preload="auto"></audio>
 
-<script>
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-app.js";
+import { getDatabase, ref, set, onValue, query, orderByChild, limitToLast } from "https://www.gstatic.com/firebasejs/10.8.0/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyA0oEauWFRHg-VoDFUHgka2Q7AbLOt6BPc",
+  authDomain: "karbala-2fcca.firebaseapp.com",
+  databaseURL: "https://karbala-2fcca-default-rtdb.firebaseio.com",
+  projectId: "karbala-2fcca",
+  storageBucket: "karbala-2fcca.firebasestorage.app",
+  messagingSenderId: "407029541851",
+  appId: "1:407029541851:web:068acb3c40e63b92af15fe"
+};
+
+const app = initializeApp(firebaseConfig);
+const db = getDatabase(app);
+
+// Game Logic
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
 canvas.width = 360; canvas.height = 640;
@@ -120,33 +135,36 @@ let state = {
     pipes: [], coins: [], magnets: [], magnetActive: 0, theme: 'light'
 };
 
-// Character UI generation
-const charListDiv = document.getElementById('charList');
-assets.chars.forEach((src, i) => {
-    const box = document.createElement('div');
-    box.className = `char-box ${i===0?'selected':''}`;
-    box.onclick = () => selectChar(i, box);
-    box.innerHTML = `<img src="${src}" width="35">`;
-    charListDiv.appendChild(box);
-});
+window.login = function() { 
+    const name = document.getElementById('username').value.trim();
+    if(name.length > 1) { 
+        localStorage.setItem('pookie_user', name); 
+        showMenu(); 
+    } 
+};
 
-window.onload = () => { if (localStorage.getItem('pookie_user')) showMenu(); };
+window.logout = function() { localStorage.removeItem('pookie_user'); location.reload(); };
 
-function login() { if(document.getElementById('username').value.trim().length > 1) { localStorage.setItem('pookie_user', document.getElementById('username').value); showMenu(); } }
-
-function showMenu() {
+window.showMenu = function() {
     document.getElementById('loginPage').style.display = 'none';
     document.getElementById('startMenu').style.display = 'flex';
     document.getElementById('totalCoinsMenu').innerText = localStorage.getItem('pookie_total_coins') || 0;
     document.getElementById('highScoreDisplay').innerText = localStorage.getItem('pookie_high') || 0;
-    updateLeaderboardUI();
-}
+    syncGlobalLeaderboard();
+};
 
-function logout() { localStorage.removeItem('pookie_user'); location.reload(); }
+window.startGame = function() { 
+    document.getElementById('startMenu').style.display = 'none'; 
+    document.getElementById('hud').style.display = 'flex'; 
+    reset(); 
+    state.active = true; 
+    loop(); 
+};
 
-function play(key) { const s = sounds[key]; if(s) { s.currentTime = 0; s.play().catch(()=>{}); } }
-
-function toggleTheme() { state.theme = state.theme === 'light' ? 'dark' : 'light'; document.body.setAttribute('data-theme', state.theme); }
+window.toggleTheme = function() { 
+    state.theme = state.theme === 'light' ? 'dark' : 'light'; 
+    document.body.setAttribute('data-theme', state.theme); 
+};
 
 function selectChar(i, el) {
     birdImg.src = assets.chars[i];
@@ -154,12 +172,57 @@ function selectChar(i, el) {
     el.classList.add('selected'); play('jump');
 }
 
-function startGame() { document.getElementById('startMenu').style.display = 'none'; document.getElementById('hud').style.display = 'flex'; reset(); state.active = true; loop(); }
+function play(key) { const s = sounds[key]; if(s) { s.currentTime = 0; s.play().catch(()=>{}); } }
 
 function reset() {
     state.bird.y = 320; state.bird.v = 0; state.score = 0; state.coinsInRun = 0; state.speed = 3.2;
     state.pipes = []; state.coins = []; state.magnets = []; state.magnetActive = 0; state.dead = false; state.frame = 0;
     document.getElementById('scoreDisplay').innerText = "0";
+}
+
+function syncGlobalLeaderboard() {
+    const lbRef = query(ref(db, 'leaderboard'), orderByChild('score'), limitToLast(5));
+    onValue(lbRef, (snap) => {
+        const data = snap.val();
+        if (data) {
+            let sorted = Object.values(data).sort((a,b) => b.score - a.score);
+            document.getElementById('leaderboardList').innerHTML = sorted.map((s, i) => 
+                `<div class="score-entry"><span>${i+1}. ${s.name}</span><span>${s.score}</span></div>`
+            ).join('');
+        }
+    });
+}
+
+function updateFirebaseScore(name, score) {
+    const scoreRef = ref(db, 'leaderboard/' + name.replace(/[.#$/[\]]/g, "_"));
+    onValue(scoreRef, (snap) => {
+        const val = snap.val();
+        if (!val || score > val.score) {
+            set(scoreRef, { name: name, score: score });
+        }
+    }, { onlyOnce: true });
+}
+
+function triggerDie() {
+    if(state.dead) return; state.dead = true; 
+    if (navigator.vibrate) navigator.vibrate([150, 50, 150]); 
+    canvas.classList.add('shake-active'); play('hit'); setTimeout(() => play('scream'), 250);
+    
+    let user = localStorage.getItem('pookie_user');
+    let total = parseInt(localStorage.getItem('pookie_total_coins') || 0);
+    localStorage.setItem('pookie_total_coins', total + state.coinsInRun);
+    
+    let high = parseInt(localStorage.getItem('pookie_high') || 0);
+    if(state.score > high) localStorage.setItem('pookie_high', state.score);
+
+    updateFirebaseScore(user, state.score);
+
+    setTimeout(() => { 
+        state.active = false; 
+        showMenu(); 
+        document.getElementById('hud').style.display = 'none'; 
+        canvas.classList.remove('shake-active'); 
+    }, 1600);
 }
 
 function spawn() {
@@ -214,33 +277,23 @@ function loop() {
     state.frame++; requestAnimationFrame(loop);
 }
 
-function triggerDie() {
-    if(state.dead) return; state.dead = true; if (navigator.vibrate) navigator.vibrate([150, 50, 150]); 
-    canvas.classList.add('shake-active'); play('hit'); setTimeout(() => play('scream'), 250);
-    
-    let total = parseInt(localStorage.getItem('pookie_total_coins') || 0);
-    localStorage.setItem('pookie_total_coins', total + state.coinsInRun);
-    
-    let high = parseInt(localStorage.getItem('pookie_high') || 0);
-    if(state.score > high) localStorage.setItem('pookie_high', state.score);
-
-    let scores = JSON.parse(localStorage.getItem('pookie_scores') || '[]');
-    let user = localStorage.getItem('pookie_user');
-    let entry = scores.find(s => s.name === user);
-    if(entry) entry.score = Math.max(entry.score, state.score); else scores.push({name: user, score: state.score});
-    localStorage.setItem('pookie_scores', JSON.stringify(scores));
-
-    setTimeout(() => { state.active = false; showMenu(); document.getElementById('hud').style.display = 'none'; canvas.classList.remove('shake-active'); }, 1600);
-}
-
-function updateLeaderboardUI() {
-    let scores = JSON.parse(localStorage.getItem('pookie_scores') || '[]');
-    document.getElementById('leaderboardList').innerHTML = scores.sort((a,b)=>b.score-a.score).slice(0,5).map((s, i) => `<div class="score-entry"><span>${i+1}. ${s.name}</span><span>${s.score}</span></div>`).join('');
-}
-
 function jump() { if(state.active && !state.dead) { state.bird.v = state.bird.jump; play('jump'); } }
+
 canvas.addEventListener('touchstart', e => { jump(); e.preventDefault(); }, {passive: false});
 window.addEventListener('mousedown', () => { if(state.active) jump(); });
+
+// Initialization
+const charListDiv = document.getElementById('charList');
+assets.chars.forEach((src, i) => {
+    const box = document.createElement('div');
+    box.className = `char-box ${i===0?'selected':''}`;
+    box.onclick = () => selectChar(i, box);
+    box.innerHTML = `<img src="${src}" width="35">`;
+    charListDiv.appendChild(box);
+});
+
+if (localStorage.getItem('pookie_user')) showMenu();
+
 </script>
 </body>
 </html>
