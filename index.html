@@ -18,6 +18,7 @@
     #chat-box { position: absolute; bottom: 85px; right: 15px; width: 220px; height: 200px; background: white; border-radius: 15px; display: none; flex-direction: column; z-index: 60; border: 1px solid #ddd; }
     #chat-msgs { flex: 1; overflow-y: auto; padding: 10px; font-size: 11px; }
     #respawn-timer { position: absolute; top: 40%; width: 100%; text-align: center; color: var(--primary); font-size: 60px; font-weight: 900; z-index: 100; display: none; text-shadow: 0 0 15px white; }
+    #muteBtn { position: absolute; bottom: 25px; left: 25px; width: 50px; height: 50px; border-radius: 50%; background: #333; color: white; border: none; font-size: 20px; z-index: 60; cursor: pointer; display: flex; align-items: center; justify-content: center; }
 </style>
 </head>
 <body>
@@ -75,6 +76,7 @@
         <div style="display:flex; padding:5px;"><input id="cIn" style="flex:1;"><button onclick="sendMsg()">🚀</button></div>
     </div>
     <button onclick="toggleChat()" style="position:absolute; bottom:25px; right:25px; width:50px; height:50px; border-radius:50%; background:var(--primary); color:white; border:none; font-size:25px; z-index:60;">💬</button>
+    <button id="muteBtn" onclick="toggleMute()">🔊</button>
 </div>
 
 <div id="adminPanel">
@@ -94,13 +96,13 @@ const app = initializeApp(conf); const db = getDatabase(app);
 const canvas = document.getElementById('game'); const ctx = canvas.getContext('2d');
 canvas.width = 360; canvas.height = 640;
 
+// ONLY YOUR CATBOX URL
 const bgMusic = new Audio('https://files.catbox.moe/yjeo65.mp3'); 
 bgMusic.loop = true;
 
-const jumpSnd = new Audio('https://assets.mixkit.co/active_storage/sfx/1359/1359-preview.mp3');
 const coinSnd = new Audio('https://assets.mixkit.co/active_storage/sfx/2019/2019-preview.mp3');
 
-let currentRoom = null; let isHost = false; let others = {}; let isMultiplayer = false;
+let currentRoom = null; let isHost = false; let others = {}; let isMultiplayer = false; let isMuted = false;
 const assets = { 
     chars: ["https://i.ibb.co/4nZsqPZn/IMG-20260403-WA0258-removebg-preview.png","https://i.ibb.co/KcbN4WFM/IMG-20260403-WA0256-removebg-preview.png","https://i.ibb.co/zV9QR1R1/IMG-20260403-WA0257-removebg-preview.png","https://i.ibb.co/3yQFCm0W/IMG-20260403-WA0259-removebg-preview.png","https://i.ibb.co/XZT4pj5r/1775227244228-removebg-preview.png"], 
     bg: "https://i.ibb.co/PsXKrn2S/1775227599134.png", 
@@ -124,8 +126,9 @@ window.showMenu = () => {
     const uKey = user.replace(/\W/g,'');
     if(user === MY_NAME) document.getElementById('adminBtn').style.display = 'block';
     onValue(ref(db, `users/${uKey}/coins`), s => {
-        document.getElementById('totalCoinsDisplay').innerText = s.val()||0;
-        document.getElementById('coinDisplay').innerText = s.val()||0;
+        const val = s.val() || 0;
+        document.getElementById('totalCoinsDisplay').innerText = val;
+        document.getElementById('coinDisplay').innerText = val;
     });
     onValue(ref(db, 'adminAlert'), s => {
         const msg = s.val();
@@ -152,7 +155,7 @@ window.startGame = (multi) => {
 function resetGameState() {
     st = { ...st, active: true, dead: false, score: 0, frame: 0, pipes: [], gameCoins: [], bird: { x: 80, y: 300, v: 0, g: 0.25 } };
     document.getElementById('scoreDisplay').innerText = "0";
-    if(isMultiplayer && currentRoom) update(ref(db, `rooms/${currentRoom}/players/${localStorage.getItem('pUser').replace(/\W/g,'')}`), { dead: false, y: 300 });
+    if(isMultiplayer && currentRoom) update(ref(db, `rooms/${currentRoom}/players/${(localStorage.getItem('pUser')||"").replace(/\W/g,'')}`), { dead: false, y: 300 });
 }
 
 function loop() {
@@ -167,14 +170,18 @@ function loop() {
             st.pipes.push({ x: 360, y: py, passed: false });
             if(Math.random() > 0.7) st.gameCoins.push({ x: 380, y: py + 80, collected: false });
         }
-        if(isMultiplayer) update(ref(db, `rooms/${currentRoom}/players/${localStorage.getItem('pUser').replace(/\W/g,'')}`), { y: st.bird.y });
+        if(isMultiplayer) update(ref(db, `rooms/${currentRoom}/players/${(localStorage.getItem('pUser')||"").replace(/\W/g,'')}`), { y: st.bird.y });
     }
 
     st.gameCoins.forEach(c => {
         if(!st.dead) c.x -= 2.5;
         if(!c.collected) {
             ctx.drawImage(coinImg, c.x, c.y, 30, 30);
-            if(Math.hypot(st.bird.x-(c.x+15), st.bird.y-(c.y+15)) < 30) { c.collected=true; coinSnd.play(); addCoin(); }
+            if(Math.hypot(st.bird.x-(c.x+15), st.bird.y-(c.y+15)) < 30) { 
+                c.collected=true; 
+                if(!isMuted) coinSnd.play(); 
+                addCoin(); 
+            }
         }
     });
 
@@ -205,7 +212,7 @@ function loop() {
 function die() {
     if(st.dead) return; st.dead = true;
     if(isMultiplayer) {
-        update(ref(db, `rooms/${currentRoom}/players/${localStorage.getItem('pUser').replace(/\W/g,'')}`), { dead: true });
+        update(ref(db, `rooms/${currentRoom}/players/${(localStorage.getItem('pUser')||"").replace(/\W/g,'')}`), { dead: true });
         let c = 2; const rt = document.getElementById('respawn-timer');
         rt.style.display = 'block'; rt.innerText = c;
         let i = setInterval(() => { c--; rt.innerText = c; if(c<=0){clearInterval(i); rt.style.display='none'; resetGameState();} }, 1000);
@@ -235,7 +242,6 @@ function joinRoom(code) {
 
 window.hostStartGame = () => { if(isHost) set(ref(db, `rooms/${currentRoom}/status`), "playing"); };
 window.leaveRoom = () => { remove(ref(db, `rooms/${currentRoom}/players/${(localStorage.getItem('pUser')||"").replace(/\W/g,'')}`)); showMenu(); };
-// WHATSAPP SHARE FUNCTION
 window.shareRoom = () => {
     const url = `https://wa.me/?text=Join my Pookie Launcher Game! Code: ${currentRoom}`;
     window.open(url, '_blank');
@@ -257,8 +263,10 @@ onValue(query(ref(db, 'globalChat'), limitToLast(10)), s => {
 function syncLB() {
     onValue(query(ref(db, 'users'), orderByChild('coins'), limitToLast(10)), s => {
         let h = '<b style="padding:5px; font-size:12px;">🏆 TOP PLAYERS</b>';
-        let arr = []; s.forEach(x => arr.push({n: x.key, c: x.val().coins}));
-        arr.reverse().forEach((p, i) => h += `<div style="display:flex; justify-content:space-between; font-size:10px; padding:2px 10px;"><span>${i+1}. ${p.n}</span><b>${p.c||0}</b></div>`);
+        let arr = []; 
+        s.forEach(x => { arr.push({n: x.key, c: x.val().coins || 0}); });
+        arr.sort((a,b) => b.c - a.c);
+        arr.forEach((p, i) => h += `<div style="display:flex; justify-content:space-between; font-size:10px; padding:2px 10px;"><span>${i+1}. ${p.n}</span><b>${p.c}</b></div>`);
         document.getElementById('leaderboardList').innerHTML = h;
     });
 }
@@ -266,10 +274,27 @@ function syncLB() {
 window.changeChar = (dir) => { st.charIndex = (st.charIndex + dir + assets.chars.length) % assets.chars.length; updateCharUI(); };
 function updateCharUI() { document.getElementById('charAvatar').src = assets.chars[st.charIndex]; }
 
-const jump = () => { 
-    if(st.active && !st.dead) { st.bird.v = -5.5; jumpSnd.currentTime=0; jumpSnd.play(); } 
-    if(bgMusic.paused) bgMusic.play(); 
+window.toggleMute = () => {
+    isMuted = !isMuted;
+    bgMusic.muted = isMuted;
+    // Extra safety: Stop song immediately if muted
+    if(isMuted) {
+        bgMusic.pause();
+    } else {
+        bgMusic.play().catch(() => {});
+    }
+    document.getElementById('muteBtn').innerText = isMuted ? '🔇' : '🔊';
 };
+
+const jump = () => { 
+    if(st.active && !st.dead) { 
+        st.bird.v = -5.5; 
+        if(!isMuted) { jumpSnd.currentTime=0; jumpSnd.play(); } 
+    } 
+    // Only play YOUR song link on interaction if not muted
+    if(bgMusic.paused && !isMuted) bgMusic.play().catch(() => {});
+};
+
 window.addEventListener('mousedown', (e) => { if(e.target.tagName !== 'BUTTON' && e.target.tagName !== 'INPUT') jump(); });
 window.addEventListener('touchstart', (e) => { if(e.target.tagName !== 'BUTTON' && e.target.tagName !== 'INPUT') jump(); });
 
