@@ -39,6 +39,8 @@
 
     <div id="startMenu" class="overlay" style="display:none;">
         <div id="adminBtn" onclick="openAdmin()" style="display:none; position:absolute; top:20px; left:20px; color:var(--admin); cursor:pointer; font-size:28px;">👑</div>
+        <div onclick="logout()" style="position:absolute; top:25px; right:20px; color:red; cursor:pointer; font-weight:bold; font-size:12px; border:1px solid red; padding:4px 8px; border-radius:8px;">LOGOUT</div>
+        
         <h2 style="color:#f1c40f; margin:5px;">💰 <span id="totalCoinsDisplay">0</span></h2>
         <div style="display:flex; align-items:center; gap:15px; margin: 10px;">
             <button onclick="changeChar(-1)" style="font-size:30px; background:none; border:none; color:var(--primary);">◀</button>
@@ -92,9 +94,8 @@ const app = initializeApp(conf); const db = getDatabase(app);
 const canvas = document.getElementById('game'); const ctx = canvas.getContext('2d');
 canvas.width = 360; canvas.height = 640;
 
-// NEW MUSIC LINKED HERE
 const bgMusic = new Audio('https://files.catbox.moe/yjeo65.mp3'); 
-bgMusic.loop = true; // REPEAT SET TO TRUE
+bgMusic.loop = true;
 
 const jumpSnd = new Audio('https://assets.mixkit.co/active_storage/sfx/1359/1359-preview.mp3');
 const coinSnd = new Audio('https://assets.mixkit.co/active_storage/sfx/2019/2019-preview.mp3');
@@ -119,8 +120,9 @@ window.showMenu = () => {
     document.getElementById('startMenu').style.display = 'flex';
     document.getElementById('hud').style.display = 'none';
     isMultiplayer = false;
-    const uKey = (localStorage.getItem('pUser')||"").replace(/\W/g,'');
-    if(localStorage.getItem('pUser') === MY_NAME) document.getElementById('adminBtn').style.display = 'block';
+    const user = localStorage.getItem('pUser') || "";
+    const uKey = user.replace(/\W/g,'');
+    if(user === MY_NAME) document.getElementById('adminBtn').style.display = 'block';
     onValue(ref(db, `users/${uKey}/coins`), s => {
         document.getElementById('totalCoinsDisplay').innerText = s.val()||0;
         document.getElementById('coinDisplay').innerText = s.val()||0;
@@ -186,7 +188,7 @@ function loop() {
     });
 
     for(let id in others) {
-        if(id !== localStorage.getItem('pUser').replace(/\W/g,'')) {
+        if(id !== (localStorage.getItem('pUser')||"").replace(/\W/g,'')) {
             let p = others[id]; ctx.globalAlpha = p.dead?0.1:0.5;
             let gImg = new Image(); gImg.src = assets.chars[p.char];
             ctx.drawImage(gImg, 80-20, p.y-20, 40, 40); ctx.globalAlpha = 1.0;
@@ -211,7 +213,7 @@ function die() {
 }
 
 function addCoin() {
-    const uKey = localStorage.getItem('pUser').replace(/\W/g,'');
+    const uKey = (localStorage.getItem('pUser')||"").replace(/\W/g,'');
     get(ref(db, `users/${uKey}/coins`)).then(s => set(ref(db, `users/${uKey}/coins`), (s.val()||0)+5));
 }
 
@@ -224,7 +226,7 @@ function joinRoom(code) {
     document.getElementById('displayRoomCode').innerText = code;
     document.getElementById('startBtn').style.display = isHost ? 'block' : 'none';
     if(isHost) set(ref(db, `rooms/${code}/status`), "waiting");
-    const pRef = ref(db, `rooms/${code}/players/${localStorage.getItem('pUser').replace(/\W/g,'')}`);
+    const pRef = ref(db, `rooms/${code}/players/${(localStorage.getItem('pUser')||"").replace(/\W/g,'')}`);
     set(pRef, { name: localStorage.getItem('pUser'), y: 300, char: st.charIndex, dead: false });
     onDisconnect(pRef).remove();
     onValue(ref(db, `rooms/${code}/players`), s => { others = s.val() || {}; document.getElementById('playerCount').innerText = `Players: ${Object.keys(others).length}`; });
@@ -232,8 +234,12 @@ function joinRoom(code) {
 }
 
 window.hostStartGame = () => { if(isHost) set(ref(db, `rooms/${currentRoom}/status`), "playing"); };
-window.leaveRoom = () => { remove(ref(db, `rooms/${currentRoom}/players/${localStorage.getItem('pUser').replace(/\W/g,'')}`)); showMenu(); };
-window.shareRoom = () => window.open(`https://wa.me/?text=Pookie Code: ${currentRoom}`);
+window.leaveRoom = () => { remove(ref(db, `rooms/${currentRoom}/players/${(localStorage.getItem('pUser')||"").replace(/\W/g,'')}`)); showMenu(); };
+// WHATSAPP SHARE FUNCTION
+window.shareRoom = () => {
+    const url = `https://wa.me/?text=Join my Pookie Launcher Game! Code: ${currentRoom}`;
+    window.open(url, '_blank');
+};
 
 window.pushGlobalAlert = () => { const m = document.getElementById('adminMsgIn').value; if(m) set(ref(db, 'adminAlert'), m); document.getElementById('adminMsgIn').value=''; };
 window.clearGlobalAlert = () => set(ref(db, 'adminAlert'), null);
@@ -262,7 +268,7 @@ function updateCharUI() { document.getElementById('charAvatar').src = assets.cha
 
 const jump = () => { 
     if(st.active && !st.dead) { st.bird.v = -5.5; jumpSnd.currentTime=0; jumpSnd.play(); } 
-    if(bgMusic.paused) bgMusic.play(); // Starts on first interaction
+    if(bgMusic.paused) bgMusic.play(); 
 };
 window.addEventListener('mousedown', (e) => { if(e.target.tagName !== 'BUTTON' && e.target.tagName !== 'INPUT') jump(); });
 window.addEventListener('touchstart', (e) => { if(e.target.tagName !== 'BUTTON' && e.target.tagName !== 'INPUT') jump(); });
